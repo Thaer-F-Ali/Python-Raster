@@ -1,5 +1,5 @@
 # Python-Raster
-This program is for meaasuring health of vegetation in remote sensing using NDVI. 
+This program is for meaasuring health of vegetation in remote sensing using NDVI. This program measures NDVI for two images together.
 from osgeo import gdal
 import numpy as np
 
