@@ -3,7 +3,7 @@ This program is for meaasuring health of vegetation in remote sensing using NDVI
 from osgeo import gdal
 import numpy as np
 
-# Opening Raster
+##Opening Raster
 def openRaster(fn):
     ds= gdal.Open(fn)
     if ds is None:
@@ -11,7 +11,7 @@ def openRaster(fn):
     else:
         print("The file has been read")
     return ds
-# Getting the Red and NIR bands of the raster
+##Getting the Red and NIR bands of the raster
 def getRasterBand(fn,band):
         ds = openRaster(fn)
         band = ds.GetRasterBand(band).ReadAsArray().astype(float)       
@@ -42,7 +42,7 @@ def ndvi(nirband, redband, ds):
                 ndviband1[i][j] = -9999.0            
     return ndviband1
     
-# Defining rasters names
+##Defining rasters names
 infn1  = "G:/Veg_System/Wasit/Data/wasit20200213.tif"
 infn2  = "G:/Veg_System/Wasit/Data/wasit20200417.tif"
 outfn1 = "G:/Veg_System/Wasit/Data/NDVI-20200213.tif"
@@ -50,13 +50,13 @@ outfn2 = "G:/Veg_System/Wasit/Data/NDVI-20200417.tif"
 ds1 = openRaster(infn1)
 ds2 = openRaster(infn2)
     
-# NDVI for the first raster
+##NDVI for the first raster
 redband1 = getRasterBand(infn1, 4)
 nirband1 = getRasterBand(infn1, 5)
 ndviband1 = ndvi(nirband1, redband1, ds1)
 createRasterFromCopy(ds1, outfn1, ndviband1)
 
-# NDVI for the second raster
+##NDVI for the second raster
 redband2 = getRasterBand(infn2, 4)
 nirband2 = getRasterBand(infn2, 5)
 ndviband2 = ndvi(nirband2, redband2, ds2)
