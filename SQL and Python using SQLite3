@@ -1,0 +1,19 @@
+import sqlite3
+from numpy import select
+
+con = sqlite3.connect("mytable.db")
+crsr = con.cursor()
+# sql_command = """create table nametable (name varchar(10), last varchar(10));"""
+sql_command1 = """insert into newtable1 values ("Mohammed", "Farag");"""
+# sql_command2 = """select * from  newtable1;"""
+
+crsr.execute(sql_command1)
+print("values were added to newtable1")
+con.commit()
+crsr.execute("select * from newtable1")
+ans = crsr.fetchall()
+print(ans)
+print("Here is the end of the program")
+
+
+con.close()
