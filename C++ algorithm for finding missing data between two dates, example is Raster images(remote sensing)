@@ -1,0 +1,222 @@
+
+
+						/*This program for finding missing pixesl using wieghted liner interpolation method*/
+#include <iostream>
+#include <string>
+#include <math.h>
+#include <cpl_string.h>
+#include <gdal_priv.h>
+#include <cpl_conv.h>
+#include <gdal/gdal.h>
+#include "/home/n8697094/libraries/gdal-1.11.0/include/gdal/gdal_priv.h"
+#include "/home/n8697094/libraries/gdal-1.11.0/include/gdal/cpl_conv.h"
+
+using namespace std;
+
+int main()
+{
+
+	
+
+	GDALDataset	*poDataset1, *poDataset2;							// 1. defining the dataset for reading the raster the two rasters
+	GDALAllRegister();
+
+	poDataset1 = (GDALDataset *)GDALOpen("/data/image4/boatman3-1-eg1.tif", GA_ReadOnly);		// reading first raster
+
+	if (poDataset1 == NULL)									    	
+	{
+		cout << endl << "Sorry your file has not been red" << "\n";
+	}
+	else
+	{
+		cout << endl << "The file has been seccessfully red" << "\n";
+	}
+
+
+	int	file_length 	= poDataset1->GetRasterXSize();						     	// getting the size of the raster
+	int 	XSize 			= file_length;
+	int 	YSize 			= poDataset1->GetRasterYSize();
+
+
+
+
+
+	poDataset2 = (GDALDataset *)GDALOpen("/data/image4/boatman3-3-eg1.tif", GA_ReadOnly);		 // reading the second raster
+	if (poDataset2 == NULL)
+	{
+		cout << endl << "sorry mate, the second raster has not been read! " << "\n";
+	}
+	else
+	{
+		cout << endl << "the second raster has been read  " << endl;
+	}
+
+													//2 pringing data from the rasters to the memory using dynamic arrays
+	double		***raster1_arr = new double **[YSize]();					// creating first dynamic array for the first raster
+	for (int y = 0; y < YSize; y++)
+	{
+		raster1_arr[y] = new double *[XSize]();
+		for (int x = 0; x < XSize; x++)
+		{
+			raster1_arr[y][x] = new	double[6]();
+		}
+	}
+
+	double		***raster2_arr = new double **[YSize]();					 //creating the second dynamic array for the second raster
+	for (int y = 0; y < YSize; y++)
+	{
+		raster2_arr[y] = new double *[XSize]();
+		for (int x = 0; x < XSize; x++)
+		{
+			raster2_arr[y][x] = new	double[6]();
+		}
+	}
+
+	double		***raster3_arr = new double **[YSize]();					 //creating third dynamic array for the third raster
+	for (int y = 0; y < YSize; y++)
+	{
+		raster3_arr[y] = new double *[XSize]();
+		for (int x = 0; x < XSize; x++)
+		{
+			raster3_arr[y][x] = new	double[6]();
+		}
+	}
+	cout << endl << "rasters have been created " <<  endl;
+
+	GDALRasterBand		*poBand1[6], *poBand2[6];						// defining the bands reader array for first and second rasters 
+
+	short			*pafScanline1[6], *pafScanline2[6];					// creating scanline reader for each line in both rasters
+
+	for (int band = 0; band < 6; band++)								// this loop for fitching lyaers of the first raster
+	{
+		poBand1[band] = poDataset1->GetRasterBand(band + 1);
+		pafScanline1[band] = (short *)CPLMalloc(sizeof(short)* file_length);
+	}
+
+
+
+	for (int y = 0; y < YSize; y++)									// this loop for filling raster1_arr with data from raster1
+	{
+		for (int i = 0; i < 6; i++)								// this loop for pring line from the bands array to the scanline reader
+		{
+			poBand1[i]->RasterIO(GF_Read, 0, y, XSize, 1, pafScanline1[i], XSize, 1, GDT_Int16, 0, 0);
+		}
+		for (int x = 0; x < XSize; x++)
+		{
+			for (int band = 0; band < 6; band++)
+			{
+				raster1_arr[y][x][band] = pafScanline1[band][x];
+			}
+		}
+
+	}
+
+	for (int band = 0; band < 6; band++)								// this loop for fitching lyaers of the second raster
+	{
+		poBand2[band] = poDataset2->GetRasterBand(band + 1);
+		pafScanline2[band] = (short *)CPLMalloc(sizeof(short)* file_length);
+	}
+
+
+	for (int y = 0; y < YSize; y++)									// this loop for filling raster2_arr with data from raster2
+		{
+		for (int i = 0; i < 6; i++)								// this loop for pring line from the bands array to the scanline reader
+			{
+			poBand2[i]->RasterIO(GF_Read, 0, y, XSize, 1, pafScanline2[i], XSize, 1, GDT_Int16, 0, 0);
+			}
+		for (int x = 0; x < XSize; x++)
+			{
+			for (int band = 0; band < 6; band++)
+				{
+				raster2_arr[y][x][band] = pafScanline2[band][x];
+				}
+			}
+
+		}	
+		
+	for (int y = 0; y < YSize; y++)									// 3 predicting the missing pixels and saving the predicted data to the third dynamic arrey
+		{
+		for (int x = 0; x < XSize; x++)
+			{
+			for (int k = 0; k < 6; k++)
+				{
+				 //finding the value of the raster using the average of two values
+				raster3_arr[y][x][k] = (raster1_arr[y][x][k] + raster2_arr[y][x][k])/2 ;
+							
+				}
+			}
+		}
+														//4 Creating the raster to save the data of Array3 
+	const char *pszFormat = "GTiff";
+	GDALDriver *poDriver;
+	GDALDataset *poDstDs;
+	char    **papszOptions = NULL;
+
+	poDriver = GetGDALDriverManager()->GetDriverByName(pszFormat);
+	//poDstDs= poDriver->CreateCopy("/data/image4/Injune_raster1.tif",poDataset1, FALSE,NULL,NULL, NULL);
+	poDstDs = poDriver->Create("/data/image4/boatman3-1-abtp.tif", XSize, YSize, 6, GDT_Int16, papszOptions);
+
+	if (poDstDs == NULL)
+	{
+		cout << endl << "Sorry mate your effort is gone " << endl;
+	}
+	else
+	{
+		cout << "The file is created " << endl;
+		}
+													
+	cout << endl;											// 5 writing data to the new raster
+	GDALRasterBand *poDBand[6];
+	float          *pazScanline;
+
+	pazScanline = (float *)CPLMalloc(sizeof(float) * XSize);
+
+	for (int i = 1; i < 7; i++)									// this loop for writing data to the created raster
+		{
+		poDBand[i - 1] = poDstDs->GetRasterBand(i);
+
+		for (int y = 0; y< YSize; y++)
+			{
+
+			poDBand[i - 1]->RasterIO(GF_Write, 0, y, XSize, 1, pazScanline, XSize, 1, GDT_Float32, 0, 0);
+
+			for (int x = 0; x < XSize; x++)
+				{
+				pazScanline[x] = raster3_arr[y][x][i - 1];
+				}
+			}
+		}
+		
+	
+													// 6 clearing the memory
+									
+	/*for (int y = 0; y < YSize; y++)									// deleting the memory of the first raster
+	{
+		for (int x = 0; x < XSize; x++)
+		{
+			delete[] raster2_arr[y][x];
+		}
+		delete[] raster2_arr[y];
+	}
+
+	for (int y = 0; y < YSize; y ++)								// deleting memory of the second raster
+	{
+		for (int x = 0; x< XSize; x++)
+		{
+			delete[] raster2_arr[y][x];
+		}
+		delete[] raster2_arr[y];
+	}
+
+	 for (int y = 0; y < YSize; y ++)                                                                // deleting memory of the second raster
+        {
+                for (int x = 0; x< XSize; x++)
+                {
+                        delete[] raster3_arr[y][x];
+                }
+                delete[] raster3_arr[y];
+        }*/
+
+	cout << "Here is the end of ABTP program " << endl;
+    return 0;
+}
