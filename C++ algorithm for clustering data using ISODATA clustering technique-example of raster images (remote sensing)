@@ -1,0 +1,623 @@
+// ConsoleApplication2.cpp : Defines the entry point for the console application.
+//
+
+#include <iostream>
+#include <string>
+#include <math.h>
+#include <cpl_string.h>
+#include <gdal_priv.h>
+#include <cpl_conv.h>
+#include <gdal/gdal.h>
+#include "/home/n8697094/libraries/gdal-1.11.0/include/gdal/gdal_priv.h"
+#include "/home/n8697094/libraries/gdal-1.11.0/include/gdal/cpl_conv.h"
+
+
+
+using namespace std;
+#define		 N 10;
+
+/* Defining the Required Parameters*/
+
+int		no_clusters			= 10, requ_no_clusters = 4;			        // number of clusters
+double		distance_from_centeroid[10]	= {};						     	// saving the results of the distance between intered pixel and each centeroid
+int		file_length, XSize, YSize;								// lingth of the line that 
+int		max_pixels 			= 75;						       	// maximum number of pixels must be in each clusters
+int		min_pixels			= 25;							// minmum number of pixels must be in each cluster
+double		min_distance 			= 25;							// minimum distance between clusters
+double		new_c_centeroid 		= 0;
+int		cluster_elements, s_cluster_elements;
+
+
+/* Defining the Rrequired Structures*/
+struct cluster											     	// structer of the cluster
+	{
+	int		code;								     	     	// is the number ( lable)of the cluster
+	int		pixel_number;  							             	// is the number of pixels in the cluster
+	double		centeroid;
+	double		**pixel_bands;
+	};
+
+struct pixel_point										     	// the point (pixel) must be clusterd
+	{
+	double		tpixel_bands[6];						             	// bands values of the pixel
+	double    	x, y;									     	// coordinates of the pixel which must be taken form the x and y of the main loop
+	};
+
+/*Defining the Required Functions */
+double			pixel_distance(cluster x, pixel_point y);				     	// function for finding distances of the input pixel from each cluster
+
+int			closest_centeroid(double d[], int near_cluster);		     	     	// function for finding the right cluster to add the input pixel at the end of it
+
+double			new_clusters_centeroids(cluster cth, int k);				     	// function to calculate new centeroids for clusters
+
+int			no_cluster_elements(cluster cluster_array);			     	     	// function to reurn the number of elements in each cluster
+
+double			mereging_clusters(cluster cluster1, cluster cluster2);			     	// function to mereging  cluster that are close in their centeroids
+
+void			cluster_printing(struct cluster cth);					     	// this function for printing the data from clusters
+
+int			no_ofclusters(cluster cthno, int no_zclusters);			    	     	// this function for returnning the number of clusters having values
+
+double			dist_cluster_centeroid(cluster dcth, int point);			     	// this function to return a new centeroid for the disterputed cluster
+
+
+
+																												/*the main function*/
+int main()
+{
+	/*Step 1: automatically defining centroid for each cluster AND reading file from rasters*/
+		
+	GDALDataset	*poDataset1;								     	// 1.1 defining the temporary dataset for reading the raster
+	GDALAllRegister();
+	poDataset1 = (GDALDataset *) GDALOpen( "/data/image4/simpl-raster13.tif", GA_ReadOnly);
+
+	if (poDataset1 == NULL)									    	// make sure the file has been red seccessfully
+		{
+		cout << endl << "Sorry your file has not been red" <<"\n";
+		}
+	else
+		{
+		cout << endl << "The file has been seccessfully red" << "\n";
+		}	
+	cout << endl << "Step 1.1 is done" << "\n";
+	
+	int center;
+	file_length	= poDataset1->GetRasterXSize();						     	// 1.2 determining points to be the initial centeorids using XSise
+	XSize		= file_length;
+	YSize		= poDataset1->GetRasterYSize();
+	//cout << endl << "the size of the file is " << file_length << "\n"; 
+	center		= file_length/ no_clusters;
+	cout << endl << "the X of the file is " << XSize << " and the y is " << YSize << ", and the distance between centers is " << center << " pixels"<< "\n";
+	cout << endl << "Step 1.2 is done" << "\n";
+
+	GDALRasterBand		*poBand[6];							     	// 1.3 measuraing each cluster's centroid
+	short			*pafScanline1[6];
+
+	double			**centeroid_arr = new double *[no_clusters]();			     	// this two dimension dynmaic array for saving each point values
+	for (int y =0 ; y < no_clusters; y ++ )
+		{
+		centeroid_arr[y]	= new double[no_clusters];
+		}
+
+	//short		centeroid = 0;
+
+	for (int band =0;band < 6; band++)								// this loop for reading (layers) bands and allocating meomory for them
+		{
+		poBand[band]		= poDataset1->GetRasterBand(band+1);
+		pafScanline1[band]	=(short *) CPLMalloc(sizeof(short )* file_length);
+		}
+
+	for (int layer=0; layer< 6; layer++)							     	// this loop for auto-calculatin centeroids using centeroid_arr
+		{
+		poBand[layer]->RasterIO(GF_Read, 0, 1, file_length, 1, pafScanline1[layer], file_length, 1, GDT_Int16, 0, 0);
+		}
+	cout << endl << "Step 1.3 is done" << "\n";
+													//1.4 her we use a 2D array to save values from the buffer and we treat each column as a pixel of 6 bands
+	double 		centeroids_arr[6][no_clusters];
+	for (int x =0; x < 6; x ++)
+		{											// this loop for creating and intializing the array with 0 value
+		for (int y =0; y < no_clusters ; y++)
+			{
+			centeroids_arr[x][y]=0;
+			}	
+		}
+
+	int 	z1 =0;
+	for (int x =0; x < 6; x++)									// this loop for reading data from the buffer and save it in the array
+		{
+		for (int y =0; y < no_clusters; y ++)
+			{
+			centeroids_arr[x][y] = pafScanline1[x][z1];
+			z1 = z1+center;
+			}
+		
+		z1 = 0;
+		}
+	double		var_center =0;
+	double 		centeroids_arr1[no_clusters];							// we creat 1D array to save the avrage of each culomn in the 2D array to represent the centeroid
+	for (int y =0; y < no_clusters ; y++)
+		{
+		for (int x =0 ; x < 6; x ++)								// this loop for saving the avrages in the array
+			{		
+			var_center= var_center+ centeroids_arr[x][y];
+			}
+		centeroids_arr1[y]= var_center/6;
+		cout << centeroids_arr1[y] << " ";
+		var_center	=0;
+		}
+	cout << endl << "Step 1.4 is done" << "\n";
+
+
+	double		***raster1_arr	= new	double	**[YSize]();					//1.5 this loop creating a 3D dynamic array (raster1_arr) to read raster1 values
+	for (int y =0; y < YSize; y++)
+		{
+		raster1_arr[y]		= new 	double	*[XSize]();	
+		for (int x =0; x < XSize; x++)
+			{
+			raster1_arr[y][x]	= new double[6]();
+			}
+		}
+	cout << endl << "Step 1.5 has been done" << "\n";
+		
+	for (int y =0; y < YSize; y++)									//1.6 this loop for saving pixels values and save them in the raster1_arr
+		{
+		for (int i =0 ; i < 6; i++)								//this loop for reading lines from the raster
+			{
+			poBand[i]->RasterIO(GF_Read, 0, y, XSize, 1, pafScanline1[i], XSize, 1, GDT_Int16, 0, 0);
+			}
+		
+		for (int x =0; x < XSize; x++)
+			{
+			for (int band=0; band < 6; band++)
+				{
+				raster1_arr[y][x][band]	= pafScanline1[band][x];
+				}
+			}
+		}
+	cout << endl<< "Step 1.6 has been done" <<"\n";    
+
+	/*Step 2: specifying memory location to each cluster and auto-initializing centroieds for clusters */
+	pixel_point	pixel_template = { 0.0, 0.0 ,0.0 ,0.0 ,0.0 ,0.0 };			     	// creating a template pixel for processing pixel's values
+
+	cluster			*cluster_no = new cluster[no_clusters];	
+	for (int k = 0; k < no_clusters; k++)							     	// creating memory to each cluster
+		{
+		cluster_no[k].code = k;								     	// intializing the code ( lables) of each cluster
+		cluster_no[k].pixel_number = 0;							     	// intializing the number of pixels in each cluster 
+		cluster_no[k].pixel_bands = new double *[200];				 	    	// creating memory for more the double of the max_pixle
+		for (int i = 0; i < max_pixels; i++)
+			{
+			cluster_no[k].pixel_bands[i] = new double[8]();
+			}
+		}
+	
+	for (int k =0; k < no_clusters; k ++)								// this loop for auto-intializing each cluster with a centeroid and code
+		{
+		cluster_no[k].centeroid = centeroids_arr1[k];
+		cluster_no[k].code	= k;
+		}
+	
+	cout << endl << "Step 2 has been doen " << "\n";
+
+
+	/*Step 3: sampling pixels to the right cluster and having the coordinates of each pixel*/					     
+
+	int 		pixel_line = 0, closer_cluster =0, z =0;
+	int 		pixel_x = 6;
+	int 		pixel_y = 7;
+	for (int y=0; y < YSize; y++)									// this is the main loop for the y dimension
+		{
+		for (int x =0; x < XSize; x++)   							// this is the nested loop for the x dimension
+			{
+
+			for (int band =0; band < 6; band++)						// this loop for filling the template pixel with pixel's values from the raster1_arr
+				{	
+				pixel_template.tpixel_bands[band] = raster1_arr[y][x][band];
+				cout << pixel_template.tpixel_bands[band] << " ";
+				}
+			pixel_template.x		= x;						// geting the coordintes (x , y) of each pixel
+			pixel_template.y 		= y; 
+
+			cout << endl << "this is the pixel number " << x << "and the line number " << y << " \n";
+
+			for (int nk = 0; nk < no_clusters; nk++)					// finding the distance of input pixel from each centeroid
+				{
+				distance_from_centeroid[nk] = pixel_distance(cluster_no[nk], pixel_template);
+				}
+
+			cout << endl;
+
+			z = closest_centeroid(distance_from_centeroid, closer_cluster);		    	// z is the code (lable) of the nearest cluster to the pixel
+			pixel_line = cluster_no[z].pixel_number;				    	// putting the number of pixels in the nearest cluster							
+			cout << endl << pixel_line << " pixels in the the cluster " << z << "\n"; 
+			for (int band = 0; band < 6; band++)					    	// regestering the pixel in the nearest cluster
+				{
+				cluster_no[z].pixel_bands[pixel_line][band] = pixel_template.tpixel_bands[band];
+				}
+
+			cluster_no[z].pixel_number++; 
+			cluster_no[z].pixel_bands[pixel_line][pixel_x] = pixel_template.x;		// saving the coordinates of the pixel
+			cluster_no[z].pixel_bands[pixel_line][pixel_y] = pixel_template.y;
+			new_c_centeroid = new_clusters_centeroids(cluster_no[z], (cluster_no[z].pixel_number));	// measuring the new centeroid to the cluster which has been added by the pixel template's values
+			cluster_no[z].centeroid = new_c_centeroid;	
+			}
+		}
+	cout << endl << "Step 3 is done" << "\n";
+/*
+
+	cout << "\n";
+	for (int nnk = 0; nnk < no_clusters; nnk++)						    	// printing data loop for the no of clusters...
+		{
+		
+		for (int i = 0; i < 200; i++)
+			{
+			for (int j = 0; j < 6; j++)
+				{
+				cout << cluster_no[nnk].pixel_bands[i][j] << " ";
+				}
+			cout << "\n";
+			}
+		cout << "\n" << "the muximum no. of pixel in cluster " << nnk << " is " << cluster_no[nnk].pixel_number << " " << "\n" << "\n";
+		}*/
+
+	
+	///*Step 4: splitting phase: discarding clusters that have few samples of pixels and clusters have too many samples of pixels */
+
+	int k = 0, pixel_line1;
+	while (k < no_clusters)
+		{
+		cout << endl <<" the no of pixel in cluster " << k << " is " << cluster_no[k].pixel_number << "\n";
+		if ((cluster_no[k].pixel_number < (min_pixels)) || (cluster_no[k].pixel_number >(max_pixels *2)))
+			{
+			cout << "the number of pixel in the cluster " << k << " is : " << cluster_no[k].pixel_number << "\n" ;
+			int i_lingth = cluster_no[k].pixel_number;
+			for (int i = 0; i < i_lingth; i++)
+				{
+				pixel_template.x = cluster_no[k].pixel_bands[i][pixel_x];		// these two steps for getting the coordinats of the pixel
+				pixel_template.y = cluster_no[k].pixel_bands[i][pixel_y];
+
+				for (int j = 0; j < 6; j++)					   	// this loop for filling the template and vauate it's memory form the sipleted cluster
+					{
+					pixel_template.tpixel_bands[j] = cluster_no[k].pixel_bands[i][j];
+					cluster_no[k].pixel_bands[i][j] = 0;			         
+					}
+				pixel_template.x	= cluster_no[k].pixel_bands[i][6];		// these steps are for geting the coordinate of the pixel in the cluster
+				pixel_template.y	= cluster_no[k].pixel_bands[i][7];
+				cluster_no[k].pixel_bands[i][6]		=0;				// these steps are for evacuate the coordinates of the pixel in the cluater
+				cluster_no[k].pixel_bands[i][7]		=0;
+				
+
+				closer_cluster = k;
+				for (int k1 = 0; k1 < no_clusters; k1++)			   	// loop for specifing the sutable cluster ( anf then determining the closest centeroid) 
+					{
+					if ( cluster_no[k1].centeroid == 0 )
+						{
+						k1++;
+						}
+					distance_from_centeroid[k1] = pixel_distance(cluster_no[k1], pixel_template);// emasuring the distance from each centeroid
+					}
+
+				z = closest_centeroid(distance_from_centeroid, closer_cluster);	   	// finding the cloesest centeroid( nearest cluster)
+				pixel_line1 = cluster_no[z].pixel_number + 1;
+				
+				for (int j = 0; j < 6; j++)					   	// loop for adding the pixel to the end of the nearest cluster
+					{
+					cluster_no[z].pixel_bands[pixel_line1][j] = pixel_template.tpixel_bands[j];
+					}
+				cluster_no[z].pixel_bands[i][6] = pixel_template.x;
+				cluster_no[z].pixel_bands[i][7]	= pixel_template.y;
+				cluster_no[z].pixel_number++;
+				new_c_centeroid = new_clusters_centeroids(cluster_no[z], (cluster_no[z].pixel_number));
+				cluster_no[z].centeroid		= new_c_centeroid;
+				}
+			cout << "the new centeroid for the cluster " << z <<  " is " << cluster_no[k].centeroid << "\n" ;						
+			cluster_no[k].centeroid = 0;
+			cout << "the centeroid of the cluster no " << k << "is " << cluster_no[k].centeroid << " " ;
+			cout << endl;
+			}
+
+		k++;
+
+	}
+
+
+	for (int k = 0; k < no_clusters; k++)							   	// this loop for printing the data of the clusters
+	{
+		for (int i = 0; i < max_pixels; i++)
+			{
+
+			for (int j = 0; j < 8; j++)
+				{
+				//cout << cluster_no[k].pixel_bands[i][j] << " -- ";
+				}
+			//cout << "\n";
+			}
+		//cout << "\n";
+	}
+	cout << "Step 4 is done" << "\n";
+
+
+	///*Step 5 merging phase: merging all clusters that close to each other  */
+	// at the begning we must determin the threeshold of the distance between clusters
+
+	for (int k = 0; k < no_clusters; k++)
+		{
+		if (cluster_no[k].centeroid ==0)
+			k++;
+		else
+			{
+			cluster_elements = cluster_no[k].pixel_number;
+			for (int pk = (k + 1); pk < no_clusters; pk++)
+				{
+				mereging_clusters(cluster_no[k], cluster_no[pk]);
+				}	
+			}
+		}
+	//cout << endl << " this is the value of mereging " << "\n";
+	for (int k = 0; k < no_clusters; k++)							   	// loop for printing the clusters pixels
+		{
+		cout << " this is the cluster no " << k << " " << endl;
+		cluster_printing(cluster_no[k]);
+		}
+	cout << endl<< "Step 5 is done " << "\n";
+
+
+	///*Step 6 splitting all clusters which contain an over accessed number of samples ( pixels) within the cluster*/
+
+	for (int k = 0; k < no_clusters; k++)							  	// this the main loop with number of clusters 
+		{
+		int qz_no_elements, midz_no_elements;
+		double diff_cluster1, diff_cluster2;
+		int z_no_elements = no_cluster_elements(cluster_no[k]);					// getting number of pixels in the cluster
+
+		if (z_no_elements >(max_pixels * 2))
+			{
+			qz_no_elements = z_no_elements / 4;						// determining two points to be intial centeroids for the two sipplted cluetes
+			midz_no_elements = z_no_elements - qz_no_elements;
+
+			cluster_no[no_clusters + 1].centeroid = dist_cluster_centeroid(cluster_no[k], qz_no_elements);// intializing a centeroid for each new cluster
+			cluster_no[no_clusters + 2].centeroid = dist_cluster_centeroid(cluster_no[k], midz_no_elements);
+			cluster_no[no_clusters + 1].code = no_clusters + 1;				// intializing a code for each new cluster
+			cluster_no[no_clusters + 2].code = no_clusters + 2;
+
+			double centeroid_point = 0;						 	// the variable to save the mean of the pixel to be combare with each cenroid
+
+			for (int i = 0; i < z_no_elements; i++)					  	// loop for desterputing pixels to the two new clusters
+				{
+				for (int j = 0; j < 6; j++)
+					{
+				  	pixel_template.tpixel_bands[j] = cluster_no[k].pixel_bands[i][j];// filling the pixel's tmeplate with values of the pixel from the cluster
+				  	centeroid_point = centeroid_point + pixel_template.tpixel_bands[j];// measuring and updateing the centeroid for the cluster
+					}
+				diff_cluster1 = cluster_no[no_clusters + 1].centeroid - (centeroid_point / 6);// measuring the distance of the selected pixel from the centeroid of the first cluster
+				diff_cluster1 = sqrt(pow(diff_cluster1, 2));
+				diff_cluster2 = cluster_no[no_clusters + 2].centeroid - (centeroid_point / 6);// measuring the distance of the selected pixel from the centeorid of the second cluster
+				diff_cluster2 = sqrt(pow(diff_cluster2, 2));
+
+				if ((cluster_no[no_clusters + 1].centeroid - (centeroid_point / 6)) < (cluster_no[no_clusters + 2].centeroid - (centeroid_point / 6)))
+					{
+					for (int j = 0; j < 6; j++)				  	// registering the selected pixel to the first caluster
+						{
+						cluster_no[no_clusters + 1].pixel_bands[i][j] = pixel_template.tpixel_bands[j];
+						}
+					int z1_no_elements = no_cluster_elements(cluster_no[no_clusters + 1]);
+					new_clusters_centeroids(cluster_no[no_clusters + 1], z1_no_elements);
+
+					}
+
+				else
+					{
+					for (int j = 0; j < 6; j++)				  	// registering the selected pixel to the second cluster
+						{
+						cluster_no[no_clusters + 2].pixel_bands[i][j] = pixel_template.tpixel_bands[j];
+						}
+					int z2_no_elements = no_cluster_elements(cluster_no[no_clusters + 2]);
+					new_clusters_centeroids(cluster_no[no_clusters + 2], z2_no_elements);
+					}
+				}
+				no_clusters= no_clusters +1;
+			}
+
+	}
+	cout << endl << "Step 6 is done " << " \n";
+
+	/*Step 7 sorting all pixels of clusters in a dynamic array to use their coordinates and type of clusters */
+
+	int		**virtual_raster = new int*[YSize]();					  	// THIS ARRAY MUST TAKE THE SIZE OF HTE IMAGE
+	for (int i = 0; i < YSize; i++)
+		{
+		virtual_raster[i] = new int[XSize]();
+			{
+			for (int j =0; j < XSize; j ++)
+				{
+				virtual_raster[i][j] = 0;
+				}
+			}
+		}
+	
+	cout << endl << "the virtual_cluster has been created" << "\n"; 
+	int k1 = 0;
+	int pixel_x1= 6, pixel_y1=7, no_elements;
+	cout << endl << "the number of clusters is " << no_clusters << endl;
+	
+	while (k1 < no_clusters)
+		{
+		if (cluster_no[k1].centeroid == 0)
+			{
+			k1++;
+			}
+		else
+			{
+			no_elements = cluster_no[k1].pixel_number; 
+			for (int i = 0; i < no_elements; i++)
+				{
+				pixel_x1 = cluster_no[k1].pixel_bands[i][pixel_x];			// having the x and y values of the pixel from the cluster
+				pixel_y1 = cluster_no[k1].pixel_bands[i][pixel_y];
+				virtual_raster[pixel_y1][pixel_x1] = cluster_no[k1].code;		// assigning the code ( lable) of the cluster to the each cell in the array
+				cout << virtual_raster[pixel_y1][pixel_x1] << " ";
+				}
+			k1++;
+			}
+		cout << endl << k1;
+		}
+	cout << endl << "here is the virtual cluster values "	 << endl;
+	for ( int y =0 ; y < YSize; y++)								// this loop for printing the virtual raster
+		{
+		for (int x =0; x < XSize; x++)
+			{	
+			cout << virtual_raster[y][x] << " ";
+			}
+		cout << endl;
+		}	
+	cout << endl << "Step 7 is done "  << "\n";
+	return 0;										  	// THE END OF THE MAIN PROGRAM
+}
+
+/*Function 1*/
+double		pixel_distance(cluster c, pixel_point p)					  	// the process of finding the distance between the input_pixel and each centeroid in each cluster
+	{
+	double		sum = 0;
+	for (int i = 0; i < 6; i++)
+	{
+		sum = sum + (pow(c.centeroid - p.tpixel_bands[i], 2));
+	}
+	return sqrt(sum);
+
+	}
+
+/*Function 2*/
+int			closest_centeroid(double distance[], int closer_cluster)		  	// this function to find the minmum distance(which is the minimum value in the distance_from_centeroid[] array)
+{
+	int z1 = closer_cluster;								  	// number of the cluster which has been sent to be redesterbuted
+	double min = distance[0];
+	int i = 0;
+	closer_cluster = 0;
+	while (i < no_clusters)
+	{
+		if ((i == z1)|| (distance[i] == 0))
+		{
+			i++;
+		}
+		if (distance[i] < min)
+		{
+			min = distance[i];
+			closer_cluster = i;
+		}
+		i++;
+	}
+	//cout << "the minimum distance is  " << min << "  and the value of z is "<<closer_cluster <<" "<<"\n";
+	return  closer_cluster;
+
+}
+
+/*Function 3*/
+double		new_clusters_centeroids(cluster cth, int fs_cluster_elements)			  	// function to measur the new centeroid for each cluster
+	{
+	double 		new_centeroid = 0;
+	double 		*cluster_pixels_mean = new double[fs_cluster_elements]();
+	for (int i = 0; i < fs_cluster_elements; i++)
+		{
+		for (int j = 0; j < 6; j++)
+			{
+			cluster_pixels_mean[i] = cluster_pixels_mean[i] + cth.pixel_bands[i][j];
+			}
+		cluster_pixels_mean[i] = cluster_pixels_mean[i] / 6;
+		new_centeroid = new_centeroid + cluster_pixels_mean[i];
+		}
+	new_centeroid = new_centeroid / fs_cluster_elements;
+
+	delete[]	cluster_pixels_mean;
+	return new_centeroid;
+
+	}
+
+/*Function 4*/
+int			no_cluster_elements(cluster cluster_array)				  	// function to return the number of elements in each cluster
+{
+
+	int x = 0, zf = 0;
+	while (x < 10)										  	// x must be the size of the colomn of the two dimention dynamic array
+	{
+		if (cluster_array.pixel_bands[x][0] > 0)
+		{
+			zf++;
+		}
+		x++;
+
+	}
+	return zf;
+
+}
+
+/*Function 5*/
+double		mereging_clusters(cluster cluster1, cluster cluster2)				  	// function to merege clusters that are closer in their centeroids 
+	{
+	int		distance_clusters, x_i = 0;	 				 
+	int		thershold = 4;
+	double		new_centeroid;
+	int		cluster1_elements = cluster1.pixel_number;				  	// getting the number of elements in each cluster
+	int		cluster2_elements = cluster2.pixel_number;
+
+
+	distance_clusters = pow((cluster1.centeroid - cluster2.centeroid), 2);
+	sqrt(distance_clusters);
+
+	if ((distance_clusters <= thershold) && (distance_clusters != 0))			  	// mereging clusters which meet the threshold
+		{
+		while (x_i < cluster2_elements)							  
+			{
+			for (int j = 0; j < 8; j++)
+				{
+				cluster1.pixel_bands[cluster1_elements+1][j] 	= cluster2.pixel_bands[x_i][j];
+				cluster2.pixel_bands[x_i][j] 			= 0;
+				cluster2.centeroid 				= 0;
+				}
+			x_i++;
+			cluster1_elements++;							  	// increasing the number of pixels in the cluster1 by one
+			cluster1.pixel_number++;
+			
+			}
+			
+		new_centeroid 		= new_clusters_centeroids(cluster1, cluster1_elements);	  	// measuring the centeroid for the cluster that has been added new pixels
+		cluster1.centeroid 	= new_centeroid;					  	// updating the centeroid of the cluster1
+		cluster2.centeroid= 0;								  	// avacuting the centeroids of the cluster2
+		}
+	return 0;
+	}	
+
+/*Function 6*/
+void		cluster_printing(struct cluster cth)
+	{	
+
+	for (int i = 0; i < max_pixels; i++)
+		{
+		for (int j = 0; j < 6; j++)
+			{
+			cout << cth.pixel_bands[i][j] << " ";
+			}
+		cout << endl;
+		}
+	cout << endl;
+
+	}
+
+/*Function 7*/
+int			no_ofclusters(cluster cthno, int no_zclusters)				  	// this function for returnning the number of clusters having values
+{
+	if (cthno.centeroid > 0)
+	{
+		no_zclusters++;
+	}
+	return no_zclusters;
+}
+
+/*Function 8*/
+double		dist_cluster_centeroid(cluster dcth, int point)					  	// this function to return the  new centeroid for the new cluster
+	{
+	double z_new_centeroid = 0;
+	for (int j = 0; j < 6; j++)
+		{
+		z_new_centeroid = z_new_centeroid + dcth.pixel_bands[point][j];
+		}
+	return (z_new_centeroid / 6);
+	}
